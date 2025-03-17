@@ -1,38 +1,71 @@
 "use client";
+import { useEffect, useState } from 'react';
 import FullCalendar from '@fullcalendar/react'; // FullCalendar React component
 import dayGridPlugin from '@fullcalendar/daygrid'; // dayGrid plugin for month view
+import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction'; // Plugin for events interaction
-import React, { useState } from 'react';
+import React from 'react';
 import AddAppointment from './AddAppointments'; // Import AddAppointment to display filtered slots
+import { AvailableSlot } from './types';
 
-const FullCalendarComponent: React.FC = () => {
+export default function FullCalendarComponent() {
+  const [events, setEvents] = useState([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // State for the selected date
+  const [availableSlots, setAvailableSlots] = useState<AvailableSlot[]>([]);
+
+  useEffect(() => {
+    if (selectedDate) {
+      // Fetch available slots for the selected date
+      fetch(`/api/appointments?date=${selectedDate}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            setAvailableSlots(data.schedules || []);
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching slots:', error);
+          setAvailableSlots([]);
+        });
+    }
+  }, [selectedDate]);
 
   // Handle date click
-  const handleDateClick = (info: { dateStr: string }) => {
-    console.log("Selected date:", info.dateStr); // Log the selected date
-    setSelectedDate(info.dateStr); // Save the selected date in state
+  const handleDateClick = (arg: any) => {
+    setSelectedDate(arg.dateStr);
   };
 
   return (
-    <div>
-      <FullCalendar
-        plugins={[dayGridPlugin, interactionPlugin]} // Add the required plugins
-        initialView="dayGridMonth" // Default view is month grid
-        selectable={true} // Allow selecting dates
-        editable={false} // Disable editing events
-        eventColor="#378006" // Customize event color
-        height="auto" // Allow full height for the calendar
-        dateClick={handleDateClick} // Attach date click handler
-      />
+    <div className="space-y-8 animate-fade-in">
+      <div className="calendar-container">
+        <FullCalendar
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          initialView="dayGridMonth"
+          headerToolbar={{
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek'
+          }}
+          events={events}
+          dateClick={handleDateClick}
+          height="auto"
+        />
+      </div>
 
-      {/* Pass selectedDate to AddAppointment to filter slots */}
-      {selectedDate && <AddAppointment selectedDate={selectedDate} />}
+      {selectedDate && (
+        <div className="card mt-8">
+          <h3 className="text-xl font-sans text-primary mb-6">
+            Available Times for {selectedDate}
+          </h3>
+          <AddAppointment 
+            selectedDate={selectedDate}
+            availableSlots={availableSlots}
+          />
+        </div>
+      )}
     </div>
   );
-};
-
-export default FullCalendarComponent;
+}
 
 
 

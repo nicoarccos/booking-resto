@@ -1,22 +1,46 @@
 import React, { useState } from 'react';
-import { AvailableSlot } from './types'; // Import AvailableSlot
+import { AvailableSlot } from './types';
+import SlotCard from './SlotCard';
+import { motion } from 'framer-motion';
 
 interface SlotGridProps {
-  slots: AvailableSlot[];  // ✅ Change from Slot[] to AvailableSlot[]
-  selectedSlot: AvailableSlot | null;  // ✅ Change from Slot to AvailableSlot
-  onSelectSlot: (slot: AvailableSlot) => void;  // ✅ Change type
+  slots: AvailableSlot[];
+  selectedSlot: AvailableSlot | null;
+  onSelectSlot: (slot: AvailableSlot) => void;
 }
 
 const SlotGrid: React.FC<SlotGridProps> = ({ slots, selectedSlot, onSelectSlot }) => {
   const [currentPage, setCurrentPage] = useState(1);
-  const slotsPerPage = 30;
+  const slotsPerPage = 12; // Reduced for better visibility
 
-  // Calculate slots to display
+  // Group slots by time period
+  const groupedSlots = slots.reduce((acc, slot) => {
+    const hour = parseInt(slot.time_slot.split(':')[0]);
+    let period = '';
+    
+    if (hour < 12) {
+      period = 'Morning (Before 12 PM)';
+    } else if (hour < 17) {
+      period = 'Afternoon (12 PM - 5 PM)';
+    } else {
+      period = 'Evening (After 5 PM)';
+    }
+
+    if (!acc[period]) {
+      acc[period] = [];
+    }
+    acc[period].push(slot);
+    return acc;
+  }, {} as Record<string, AvailableSlot[]>);
+
+  // Calculate pagination
   const startIndex = (currentPage - 1) * slotsPerPage;
   const endIndex = startIndex + slotsPerPage;
-  const currentSlots = slots.slice(startIndex, endIndex);
-
-  const totalPages = Math.ceil(slots.length / slotsPerPage);
+  
+  // Flatten grouped slots for pagination
+  const allSlots = Object.values(groupedSlots).flat();
+  const currentSlots = allSlots.slice(startIndex, endIndex);
+  const totalPages = Math.ceil(allSlots.length / slotsPerPage);
 
   const handleNextPage = () => {
     if (currentPage < totalPages) setCurrentPage(currentPage + 1);
@@ -27,51 +51,62 @@ const SlotGrid: React.FC<SlotGridProps> = ({ slots, selectedSlot, onSelectSlot }
   };
 
   return (
-    <div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {currentSlots.map((slot) => (
-          <div
-            key={slot.id}
-            onClick={() => onSelectSlot(slot)}
-            className={`p-4 border rounded-lg shadow-md cursor-pointer ${
-              selectedSlot?.id === slot.id ? 'border-blue-500 bg-blue-100' : 'border-gray-300'
-            } hover:bg-blue-50 transition`}
-          >
-            <p className="text-sm font-medium text-gray-600">{slot.date}</p>
-            <p className="text-sm text-gray-500">{slot.day}</p>
-            <p className="text-sm font-semibold text-gray-700">{slot.time_slot}</p>
-            <p
-              className={`text-sm mt-2 ${
-                slot.booked ? 'text-red-500' : 'text-green-500'
-              }`}
-            >
-              {slot.booked ? 'Unavailable' : 'Available'}
-            </p>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.3 }}
+      className="space-y-6"
+    >
+      {Object.entries(groupedSlots).map(([period, periodSlots]) => (
+        <div key={period} className="space-y-3">
+          <h4 className="text-sm font-sans text-text-primary">{period}</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {periodSlots.map((slot) => (
+              <SlotCard
+                key={slot.id}
+                slot={slot}
+                isSelected={selectedSlot?.id === slot.id}
+                onClick={() => !slot.booked && onSelectSlot(slot)}
+              />
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
 
-      {/* Pagination Controls */}
-      <div className="mt-4 flex justify-center items-center gap-4">
-        <button
-          onClick={handlePreviousPage}
-          disabled={currentPage === 1}
-          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md disabled:opacity-50 hover:bg-gray-300 transition"
-        >
-          Previous
-        </button>
-        <span className="text-gray-700">
-          Page {currentPage} of {totalPages}
-        </span>
-        <button
-          onClick={handleNextPage}
-          disabled={currentPage === totalPages}
-          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md disabled:opacity-50 hover:bg-gray-300 transition"
-        >
-          Next
-        </button>
-      </div>
-    </div>
+      {totalPages > 1 && (
+        <div className="flex justify-center items-center gap-4 mt-6">
+          <button
+            onClick={handlePreviousPage}
+            disabled={currentPage === 1}
+            className={`
+              px-4 py-2 rounded-default font-sans text-sm transition-all
+              ${currentPage === 1
+                ? 'bg-gray-100 text-text-secondary cursor-not-allowed'
+                : 'bg-background border border-primary text-primary hover:bg-background/80'
+              }
+            `}
+          >
+            Previous
+          </button>
+          <span className="text-sm font-body text-text-secondary">
+            Page {currentPage} of {totalPages}
+          </span>
+          <button
+            onClick={handleNextPage}
+            disabled={currentPage === totalPages}
+            className={`
+              px-4 py-2 rounded-default font-sans text-sm transition-all
+              ${currentPage === totalPages
+                ? 'bg-gray-100 text-text-secondary cursor-not-allowed'
+                : 'bg-background border border-primary text-primary hover:bg-background/80'
+              }
+            `}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </motion.div>
   );
 };
 

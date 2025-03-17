@@ -1,397 +1,236 @@
-import { supabase } from '@/app/utils/supabaseClient';
 import { NextResponse } from 'next/server';
+import { supabase } from '@/app/utils/supabaseClient';
 import { sendEmail } from '@/app/utils/sendEmail';
 
-//get all the slots
-
-
-
-
-
-export async function GET(req: Request) {
+// GET - Obtener citas
+export async function GET(request: Request) {
   try {
-    const url = new URL(req.url); // Parse the request URL
-    const selectedDate = url.searchParams.get('date'); // Extract the 'date' query parameter
+    const { searchParams } = new URL(request.url);
+    const date = searchParams.get('date');
 
-    if (!selectedDate) {
-      return NextResponse.json(
-        { success: false, message: 'Date query parameter is required.' },
-        { status: 400 }
-      );
-    }
-
-    // Fetch available appointment slots for the specific date
     const { data, error } = await supabase
-      .from('appointments_schedule') // Assuming the table is 'appointments_schedule'
-      .select('*') // Replace '*' with only the necessary fields if needed
-      .eq('date', selectedDate) // Filter by the selected date
-      .or('is_booked.eq.false,is_booked.is.null'); // Include slots where booked is false or null
+      .from('appointments')
+      .select('*');
 
     if (error) {
-      console.error('Error fetching appointment schedules:', error.message);
       return NextResponse.json(
-        { success: false, message: 'Error fetching schedules', error: error.message },
-        { status: 400 }
+        { success: false, message: error.message },
+        { status: 500 }
       );
     }
 
-    // Log the available slots data to the server console
-    console.log('Available Slots:', data);
+    const filteredData = date
+      ? data.filter(appointment => appointment.date === date)
+      : data;
 
-    // Return the fetched data in the response
-    return NextResponse.json({ success: true, schedules: data }, { status: 200 });
-  } catch (err) {
-    console.error('Unexpected error fetching schedules:', err);
+    return NextResponse.json({ success: true, appointments: filteredData });
+  } catch (error) {
     return NextResponse.json(
-      { success: false, message: 'Unexpected error occurred', error: err },
+      { success: false, message: 'Internal server error' },
       { status: 500 }
     );
   }
 }
 
-
-
-//post-book an appointment
-
-
-
-export async function POST(req: Request) {
+// POST - Crear una nueva cita
+export async function POST(request: Request) {
   try {
-    const body = await req.json(); // Parse the incoming JSON body
-    const { schedule_id, customer_email, customer_name, notes, service } = body;
+    const body = await request.json();
+    const { schedule_id, customer_email, customer_name, notes, service, date, time } = body;
 
-    // Validate the incoming data
-    if (!schedule_id || !customer_email || !customer_name || !service) {
+    // Validar los datos requeridos
+    if (!customer_email || !customer_name || !service || (!schedule_id && (!date || !time))) {
       return NextResponse.json(
-        { success: false, message: 'Schedule ID, customer email, name, and service are required fields.' },
+        { success: false, message: 'Missing required fields' },
         { status: 400 }
       );
     }
 
-    // Insert the appointment into the database
-    const { data: insertedAppointment, error: insertError } = await supabase
+    // Si se proporciona schedule_id, obtener los detalles del horario
+    if (schedule_id) {
+      const { data: scheduleDetails, error: scheduleError } = await supabase
+        .from('appointments_schedule')
+        .select('*')
+        .eq('id', schedule_id)
+        .single();
+
+      if (scheduleError || !scheduleDetails) {
+        return NextResponse.json(
+          { success: false, message: 'Invalid schedule ID' },
+          { status: 400 }
+        );
+      }
+
+      // Usar la fecha y hora del horario
+      body.date = scheduleDetails.date;
+      body.time = scheduleDetails.time;
+    }
+
+    // Verificar disponibilidad
+    const { data: existingBooking } = await supabase
       .from('appointments')
-      .insert([{ 
-        schedule_id, 
-        customer_email, 
-        customer_name, 
-        notes, 
-        service, 
-        booked: true // Set booked to true
+      .select('*')
+      .eq('date', body.date)
+      .eq('time', body.time);
+
+    if (existingBooking && existingBooking.length > 0) {
+      return NextResponse.json(
+        { success: false, message: 'Time slot is already booked' },
+        { status: 409 }
+      );
+    }
+
+    // Crear la cita
+    const { data, error } = await supabase
+      .from('appointments')
+      .insert([{
+        ...body,
+        booked: true
       }])
-      .select(); // Use `.select()` to retrieve the inserted row
+      .select()
+      .single();
 
-    if (insertError) {
-      console.error('Error inserting appointment:', insertError.message);
+    if (error) {
       return NextResponse.json(
-        { success: false, message: 'Failed to add appointment.', error: insertError.message },
+        { success: false, message: error.message },
         { status: 500 }
       );
     }
 
-    const appointment = insertedAppointment[0]; // Get the first (and only) inserted appointment
-
-    // Fetch the corresponding schedule details from the `appointments_schedule` table using `schedule_id`
-    const { data: scheduleDetails, error: scheduleError } = await supabase
-      .from('appointments_schedule') // Adjusted to the correct table name
-      .select('*') // Select the columns you need (date, time, time_slot)
-      .eq('id', schedule_id); // Match the schedule ID
-
-    if (scheduleError) {
-      console.error('Error fetching schedule details:', scheduleError.message);
-      return NextResponse.json(
-        { success: false, message: 'Failed to fetch schedule details.', error: scheduleError.message },
-        { status: 500 }
-      );
+    // Enviar email de confirmación
+    try {
+      const emailSubject = 'Appointment Confirmation';
+      const emailBody = `
+        <h1>Appointment Confirmation</h1>
+        <p>Dear ${customer_name},</p>
+        <p>Your appointment has been confirmed for ${body.date} at ${body.time}.</p>
+        <p>Service: ${service}</p>
+        ${notes ? `<p>Notes: ${notes}</p>` : ''}
+        <p>Thank you for choosing our service!</p>
+      `;
+      
+      await sendEmail({
+        to: customer_email,
+        subject: emailSubject,
+        text: emailBody.replace(/<[^>]*>/g, ''), // Versión sin HTML
+        html: emailBody
+      });
+    } catch (emailError) {
+      console.error('Failed to send confirmation email:', emailError);
+      // No retornamos error aquí ya que la cita se creó correctamente
     }
 
-    const schedule = scheduleDetails[0]; // Assume there's one schedule row with the given ID
-
-    // Construct the email content
-    const emailSubject = 'Appointment Confirmation';
-    const emailBody = `
-      <h1>Appointment Confirmation</h1>
-      <p>Dear ${customer_name},</p>
-      <p>Thank you for booking an appointment. Here are your appointment details:</p>
-      <ul>
-        <li><strong>Appointment ID:</strong> ${appointment.id}</li>
-        <li><strong>Service:</strong> ${service}</li>
-        <li><strong>Notes:</strong> ${notes || 'N/A'}</li>
-        <li><strong>Schedule Date:</strong> ${schedule ? schedule.date : 'N/A'}</li>
-        <li><strong>Schedule Time:</strong> ${schedule ? schedule.time : 'N/A'}</li>
-        <li><strong>Time Slot:</strong> ${schedule ? schedule.time_slot : 'N/A'}</li>
-      </ul>
-      <p>We look forward to serving you!</p>
-      <p>Best regards,</p>
-      <p>Your Company Name</p>
-    `;
-
-    // Send the email
-    const emailResult = await sendEmail({
-      to: customer_email,
-      subject: emailSubject,
-      text: emailBody.replace(/<[^>]+>/g, ''), // Plain text version (strip HTML tags)
-      html: emailBody,
-    });
-
-    if (!emailResult.success) {
-      console.error('Error sending email:', emailResult.error);
-      return NextResponse.json(
-        { success: false, message: 'Appointment added, but email failed.', error: emailResult.error },
-        { status: 500 }
-      );
-    }
-
-    // Respond with success
+    return NextResponse.json({ success: true, appointment: data });
+  } catch (error) {
     return NextResponse.json(
-      { 
-        success: true, 
-        message: 'Appointment added and confirmation email sent.', 
-        appointment: insertedAppointment[0] 
-      }, 
-      { status: 201 }
-    );
-  } catch (err) {
-    console.error('Unexpected error:', err);
-    return NextResponse.json(
-      { success: false, message: 'Unexpected error occurred.', error: err },
+      { success: false, message: 'Internal server error' },
       { status: 500 }
     );
   }
 }
 
+// PATCH - Actualizar una cita existente
+export async function PATCH(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    const customerEmail = searchParams.get('customer_email');
+    const body = await request.json();
 
+    if (!id || !customerEmail) {
+      return NextResponse.json(
+        { success: false, message: 'Missing ID or customer email' },
+        { status: 400 }
+      );
+    }
 
+    const { data: existing } = await supabase
+      .from('appointments')
+      .select()
+      .eq('id', id)
+      .eq('customer_email', customerEmail)
+      .single();
 
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, message: 'Appointment not found or unauthorized' },
+        { status: 404 }
+      );
+    }
 
+    const { data, error } = await supabase
+      .from('appointments')
+      .update(body)
+      .eq('id', id)
+      .eq('customer_email', customerEmail)
+      .select()
+      .single();
 
+    if (error) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: 500 }
+      );
+    }
 
-//Delete appointment request
+    return NextResponse.json({ success: true, appointment: data });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, message: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
 
-
-
-// Define types for the data you're dealing with (adjust the fields if necessary)
-
-
+// DELETE - Eliminar una cita
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const appointmentId = searchParams.get("id");
-    const customerEmail = searchParams.get("customer_email");
+    const id = searchParams.get('id');
+    const customerEmail = searchParams.get('customer_email');
 
-    if (!appointmentId || !customerEmail) {
+    if (!id || !customerEmail) {
       return NextResponse.json(
-        { success: false, message: "Appointment ID and Customer Email are required." },
+        { success: false, message: 'Missing ID or customer email' },
         { status: 400 }
       );
     }
 
-    // Delete appointment
-    const { data, error } = await supabase
-      .from("appointments")
-      .delete()
-      .eq("id", appointmentId)
-      .eq("customer_email", customerEmail)
-      .select("*"); // Retrieve deleted rows
-
-    const count = data ? data.length : 0; // Count deleted rows
-
-    if (error) {
-      console.error("Error deleting appointment:", error.message);
-      return NextResponse.json(
-        { success: false, message: "Error deleting appointment.", error: error.message },
-        { status: 400 }
-      );
-    }
-
-    if (count === 0) {
-      return NextResponse.json(
-        { success: false, message: "No appointment found with the provided ID and email." },
-        { status: 404 }
-      );
-    }
-
-    // Send email notification
-    const emailResponse = await sendEmail({
-      to: customerEmail,
-      subject: "Your Appointment Has Been Cancelled",
-      text: `Hello,\n\nYour appointment (ID: ${appointmentId}) has been successfully cancelled. If this was a mistake, please contact us to reschedule.\n\nBest regards,\nYour Company Name`,
-      html: `
-        <h2>Appointment Cancelled</h2>
-        <p>Dear Customer,</p>
-        <p>Your appointment (ID: <b>${appointmentId}</b>) has been successfully cancelled.</p>
-        <p>If this was a mistake, please contact us to reschedule.</p>
-        <br/>
-        <p>Best regards,</p>
-        <p>Your Company Name</p>
-      `,
-    });
-
-    if (!emailResponse.success) {
-      console.error("Error sending cancellation email:", emailResponse.error);
-    }
-
-    return NextResponse.json(
-      { success: true, message: "Appointment deleted successfully. Email sent.", deletedAppointment: data },
-      { status: 200 }
-    );
-  } catch (err) {
-    console.error("Unexpected error deleting appointment:", err);
-    return NextResponse.json(
-      { success: false, message: "Unexpected error occurred.", error: err },
-      { status: 500 }
-    );
-  }
-}
-
-
-
-
-
-
-//updating appointment 
-
-
-
-
-export async function PATCH(request: Request) {
-  try {
-    // Extract ID and customer email from query string
-    const { searchParams } = new URL(request.url);
-    const appointmentId = searchParams.get("id");
-    const customerEmail = searchParams.get("customer_email");
-
-    if (!appointmentId || !customerEmail) {
-      return NextResponse.json(
-        { success: false, message: "Appointment ID and Customer Email are required." },
-        { status: 400 }
-      );
-    }
-
-    // Get the update fields from the request body
-    const body = await request.json();
-    const updateFields: Partial<Record<"service" | "notes", string>> = {};
-    if (body.service) updateFields.service = body.service;
-    if (body.notes) updateFields.notes = body.notes;
-
-    const isUpdatingDateOrTime = body.date || body.time_slot;
-
-    if (Object.keys(updateFields).length === 0 && !isUpdatingDateOrTime) {
-      return NextResponse.json(
-        { success: false, message: "Only 'service', 'notes', 'date', or 'time_slot' can be updated." },
-        { status: 400 }
-      );
-    }
-
-    // Fetch the existing appointment details
-    const { data: appointmentData, error: appointmentError } = await supabase
-      .from("appointments")
-      .select("schedule_id")
-      .eq("id", appointmentId)
-      .eq("customer_email", customerEmail)
+    const { data: existing } = await supabase
+      .from('appointments')
+      .select()
+      .eq('id', id)
+      .eq('customer_email', customerEmail)
       .single();
 
-    if (appointmentError || !appointmentData) {
+    if (!existing) {
       return NextResponse.json(
-        { success: false, message: "No appointment found with the provided ID and email." },
+        { success: false, message: 'Appointment not found or unauthorized' },
         { status: 404 }
       );
     }
 
-    const scheduleId: string = appointmentData.schedule_id;
+    const { error } = await supabase
+      .from('appointments')
+      .delete()
+      .eq('id', id)
+      .eq('customer_email', customerEmail);
 
-    // If updating date/time, fetch and update schedule
-    if (isUpdatingDateOrTime) {
-      
-
-      await supabase
-        .from("appointments_schedule")
-        .update({ is_booked: false })
-        .eq("id", scheduleId);
-
-      const { data: newSchedule } = await supabase
-        .from("appointments_schedule")
-        .select("id, is_booked")
-        .eq("date", body.date)
-        .eq("time_slot", body.time_slot)
-        .single();
-
-      if (!newSchedule || newSchedule.is_booked) {
-        return NextResponse.json(
-          { success: false, message: "The selected time slot is unavailable." },
-          { status: 400 }
-        );
-      }
-
-      await supabase
-        .from("appointments_schedule")
-        .update({ is_booked: true })
-        .eq("id", newSchedule.id);
-
-      await supabase
-        .from("appointments")
-        .update({ schedule_id: newSchedule.id })
-        .eq("id", appointmentId);
+    if (error) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: 500 }
+      );
     }
 
-    // If updating service or notes, apply the update
-    if (Object.keys(updateFields).length > 0) {
-      const { error: updateError } = await supabase
-        .from("appointments")
-        .update(updateFields)
-        .eq("id", appointmentId)
-        .eq("customer_email", customerEmail);
-
-      if (updateError) {
-        return NextResponse.json(
-          { success: false, message: "Error updating appointment.", error: updateError.message },
-          { status: 400 }
-        );
-      }
-    }
-
-    // ✅ SEND EMAIL NOTIFICATION
-    const emailSubject = "Your Appointment Has Been Updated";
-    const emailText = `
-      Hello, your appointment has been successfully updated.\n
-      ${body.date ? `New Date: ${body.date}` : ""}
-      ${body.time_slot ? `New Time: ${body.time_slot}` : ""}
-      ${body.service ? `Service: ${body.service}` : ""}
-      ${body.notes ? `Notes: ${body.notes}` : ""}
-      \nThank you!
-    `;
-    const emailHtml = `
-      <h2>Appointment Updated Successfully</h2>
-      <p>Hello,</p>
-      <p>Your appointment has been successfully updated.</p>
-      <ul>
-        ${body.date ? `<li><strong>New Date:</strong> ${body.date}</li>` : ""}
-        ${body.time_slot ? `<li><strong>New Time:</strong> ${body.time_slot}</li>` : ""}
-        ${body.service ? `<li><strong>Service:</strong> ${body.service}</li>` : ""}
-        ${body.notes ? `<li><strong>Notes:</strong> ${body.notes}</li>` : ""}
-      </ul>
-      <p>Thank you!</p>
-    `;
-
-    const emailResponse = await sendEmail({
-      to: customerEmail,
-      subject: emailSubject,
-      text: emailText,
-      html: emailHtml,
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Appointment deleted successfully' 
     });
-
-    if (!emailResponse.success) {
-      console.error("Email sending failed:", emailResponse.error);
-    }
-
+  } catch (error) {
     return NextResponse.json(
-      { success: true, message: "Appointment updated successfully. Notification sent!" },
-      { status: 200 }
-    );
-  } catch (err) {
-    return NextResponse.json(
-      { success: false, message: "Unexpected error occurred.", error: String(err) },
+      { success: false, message: 'Internal server error' },
       { status: 500 }
     );
   }
-}
+} 

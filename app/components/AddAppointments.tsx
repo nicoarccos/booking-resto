@@ -1,56 +1,83 @@
 "use client";
-import { useState, useEffect } from "react";
-import SlotGrid from "./SlotGrid";
-
-interface AvailableSlot {
-  id: number;
-  date: string;
-  day: string;
-  time_slot: string;
-  booked: boolean;
-}
+import { useState } from "react";
+import MonthSection from "./MonthSection";
+import { motion } from "framer-motion";
+import { AvailableSlot } from "./types";
 
 interface AddAppointmentProps {
   selectedDate: string;
+  availableSlots?: AvailableSlot[];
 }
 
-const AddAppointment: React.FC<AddAppointmentProps> = ({ selectedDate }) => {
+const services = [
+  { 
+    id: 'dinner', 
+    name: 'Dinner', 
+    description: 'Fine dining experience',
+    capacity: '2-4 people'
+  },
+  { 
+    id: 'lunch', 
+    name: 'Lunch', 
+    description: 'Casual dining experience',
+    capacity: '2-6 people'
+  },
+  { 
+    id: 'special_event', 
+    name: 'Special Event', 
+    description: 'Private dining room',
+    capacity: '8-12 people'
+  },
+  { 
+    id: 'tasting_menu', 
+    name: 'Tasting Menu', 
+    description: "Chef's special selection",
+    capacity: '2-8 people'
+  }
+];
+
+const AddAppointment: React.FC<AddAppointmentProps> = ({ 
+  selectedDate,
+  availableSlots = []
+}) => {
   const [customer_email, setCustomerEmail] = useState("");
   const [customer_name, setCustomerName] = useState("");
+  const [guests, setGuests] = useState("");
   const [notes, setNotes] = useState("");
   const [service, setService] = useState("");
-  const [responseMessage, setResponseMessage] = useState<string | null>(null);
-  const [availableSlots, setAvailableSlots] = useState<AvailableSlot[]>([]);
+  const [responseMessage, setResponseMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
 
-  useEffect(() => {
-    const fetchAvailableSlots = async () => {
-      if (!selectedDate) return;
-
-      try {
-        const response = await fetch(`/api/appointments?date=${selectedDate}`);
-        const result = await response.json();
-
-        if (response.ok) {
-          setAvailableSlots(result.schedules || []);
-        } else {
-          console.error("Error fetching available slots:", result.error);
-          setAvailableSlots([]);
-        }
-      } catch (error) {
-        console.error("Unexpected error fetching available slots:", error);
-      }
-    };
-
-    fetchAvailableSlots();
-  }, [selectedDate]);
+  const validateForm = () => {
+    if (!customer_email) {
+      setResponseMessage({ type: 'error', text: 'Please enter your email address' });
+      return false;
+    }
+    if (!customer_name) {
+      setResponseMessage({ type: 'error', text: 'Please enter your name' });
+      return false;
+    }
+    if (!guests) {
+      setResponseMessage({ type: 'error', text: 'Please enter the number of guests' });
+      return false;
+    }
+    if (!service) {
+      setResponseMessage({ type: 'error', text: 'Please select a dining option' });
+      return false;
+    }
+    if (!selectedSlot) {
+      setResponseMessage({ type: 'error', text: 'Please select an available time slot' });
+      return false;
+    }
+    return true;
+  };
 
   const handleSubmit = async () => {
-    if (!selectedSlot) {
-      
-      return;
-    }
+    if (!validateForm()) return;
 
+    setIsLoading(true);
     try {
       const response = await fetch("/api/appointments", {
         method: "POST",
@@ -58,92 +85,194 @@ const AddAppointment: React.FC<AddAppointmentProps> = ({ selectedDate }) => {
         body: JSON.stringify({
           customer_email,
           customer_name,
+          guests,
           notes,
           service,
-          schedule_id: selectedSlot.id,
+          schedule_id: selectedSlot?.id,
         }),
       });
 
       const result = await response.json();
-      setResponseMessage(result.message);
 
       if (response.ok) {
-        alert("Appointment added successfully");
-        setAvailableSlots((prev) =>
-          prev.map((slot) =>
-            slot.id === selectedSlot.id ? { ...slot, booked: true } : slot
-          )
-        );
+        setResponseMessage({ type: 'success', text: 'Reservation confirmed! Check your email for confirmation details.' });
+        setSelectedSlot(null);
         setCustomerEmail("");
         setCustomerName("");
+        setGuests("");
         setNotes("");
         setService("");
-        setSelectedSlot(null);
+        setStep(1);
       } else {
-        console.error("Error adding appointment:", result.error);
+        setResponseMessage({ type: 'error', text: result.message || 'Error making reservation' });
       }
     } catch (err) {
-      console.error("Unexpected error:", err);
-      setResponseMessage("Unexpected error occurred.");
+      setResponseMessage({ type: 'error', text: 'An unexpected error occurred. Please try again.' });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="flex justify-center items-center min-h-screen bg-white-100">
-      <div className="bg-white p-6 rounded-2xl shadow-lg w-full max-w-lg">
-        <h1 className="text-xl font-semibold text-green-700 text-center mb-4">
-          Complete the following information to make an appointment
-        </h1>
-        <div className="space-y-3">
-          <input
-            type="email"
-            value={customer_email}
-            onChange={(e) => setCustomerEmail(e.target.value)}
-            placeholder="Enter customer email"
-            className="w-full p-2 border border-gray-300 rounded-lg focus:ring focus:ring-green-300"
-          />
-          <input
-            type="text"
-            value={customer_name}
-            onChange={(e) => setCustomerName(e.target.value)}
-            placeholder="Enter customer name"
-            className="w-full p-2 border border-gray-300 rounded-lg focus:ring focus:ring-green-300"
-          />
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Enter any notes (optional)"
-            className="w-full p-2 border border-gray-300 rounded-lg focus:ring focus:ring-green-300"
-          />
-          <input
-            type="text"
-            value={service}
-            onChange={(e) => setService(e.target.value)}
-            placeholder="Enter service"
-            className="w-full p-2 border border-gray-300 rounded-lg focus:ring focus:ring-green-300"
-          />
-        </div>
-        <div className="mt-4">
-          <h2 className="text-lg font-medium text-gray-700 text-center mb-2">
-            Available Slots for {selectedDate}
-          </h2>
-          <SlotGrid
-            slots={availableSlots}
-            selectedSlot={selectedSlot}
-            onSelectSlot={(slot) => setSelectedSlot(slot)}
-          />
-        </div>
-        <button
-          onClick={handleSubmit}
-          className="w-full mt-4 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition"
+    <motion.div
+      className="w-full max-w-2xl mx-auto"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+    >
+      <div className="bg-white shadow-medium rounded-lg p-6 md:p-8">
+        <h2 className="text-2xl font-sans text-primary text-center mb-6">
+          Make a Reservation
+        </h2>
+
+        <motion.div
+          initial={{ x: -20, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ duration: 0.3 }}
         >
-          Add Appointment
-        </button>
+          {step === 1 ? (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-body text-text-primary mb-2">Name</label>
+                  <input
+                    type="text"
+                    value={customer_name}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="Your full name"
+                    className="w-full p-3 border border-gray-200 rounded-default focus:ring-2 focus:ring-accent focus:border-accent-light transition-all font-body"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-body text-text-primary mb-2">Email</label>
+                  <input
+                    type="email"
+                    value={customer_email}
+                    onChange={(e) => setCustomerEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    className="w-full p-3 border border-gray-200 rounded-default focus:ring-2 focus:ring-accent focus:border-accent-light transition-all font-body"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-body text-text-primary mb-2">Number of Guests</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="12"
+                  value={guests}
+                  onChange={(e) => setGuests(e.target.value)}
+                  placeholder="Enter number of guests"
+                  className="w-full p-3 border border-gray-200 rounded-default focus:ring-2 focus:ring-accent focus:border-accent-light transition-all font-body"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-body text-text-primary mb-2">Dining Option</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {services.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => setService(s.id)}
+                      className={`p-4 rounded-default border transition-all text-left ${
+                        service === s.id
+                          ? 'border-primary bg-background text-primary shadow-highlight'
+                          : 'border-gray-200 hover:border-accent hover:bg-background/50'
+                      }`}
+                    >
+                      <div className="font-sans">{s.name}</div>
+                      <div className="text-sm text-text-secondary font-body">{s.description}</div>
+                      <div className="text-xs text-accent mt-1 font-body">{s.capacity}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-body text-text-primary mb-2">Special Requests</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Dietary restrictions, special occasions, seating preferences..."
+                  className="w-full p-3 border border-gray-200 rounded-default focus:ring-2 focus:ring-accent focus:border-accent-light transition-all min-h-[100px] font-body"
+                />
+              </div>
+
+              <button
+                onClick={() => setStep(2)}
+                disabled={!customer_email || !customer_name || !service || !guests}
+                className={`w-full p-4 rounded-default font-sans transition-all ${
+                  !customer_email || !customer_name || !service || !guests
+                    ? 'bg-gray-100 text-text-secondary cursor-not-allowed'
+                    : 'bg-primary text-white hover:bg-primary-dark active:bg-primary-dark'
+                }`}
+              >
+                Continue to Select Time
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-sans text-text-primary text-center mb-4">
+                  Select Your Preferred Time
+                </h3>
+                <MonthSection
+                  month={new Date(selectedDate).toLocaleString('default', { month: 'long' })}
+                  slots={availableSlots}
+                  selectedSlot={selectedSlot}
+                  onSelectSlot={(slot) => setSelectedSlot(slot)}
+                />
+              </div>
+
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setStep(1)}
+                  className="flex-1 p-4 rounded-default font-sans border border-primary text-primary hover:bg-background transition-all"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={isLoading || !selectedSlot}
+                  className={`flex-1 p-4 rounded-default font-sans transition-all ${
+                    isLoading || !selectedSlot
+                      ? 'bg-gray-100 text-text-secondary cursor-not-allowed'
+                      : 'bg-primary text-white hover:bg-primary-dark active:bg-primary-dark'
+                  }`}
+                >
+                  {isLoading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Confirming...
+                    </span>
+                  ) : (
+                    'Confirm Reservation'
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+        </motion.div>
+
         {responseMessage && (
-          <p className="text-center text-sm text-gray-600 mt-2">{responseMessage}</p>
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`mt-6 p-4 rounded-default ${
+              responseMessage.type === 'success'
+                ? 'bg-background text-success border border-success/20'
+                : 'bg-background text-error border border-error/20'
+            }`}
+          >
+            {responseMessage.text}
+          </motion.div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 };
 

@@ -1,25 +1,30 @@
-
 "use client";
 
 import { useState } from "react";
+import { motion } from "framer-motion";
+import toast from 'react-hot-toast';
 
-const DeleteAppointment = () => {
+export default function DeleteAppointment() {
   const [appointmentId, setAppointmentId] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
-  const [responseMessage, setResponseMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
-  const handleDelete = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!showConfirm) {
+      setShowConfirm(true);
+      return;
+    }
+
     if (!appointmentId || !customerEmail) {
-      setResponseMessage("❌ Please provide both appointment ID and customer email.");
+      toast.error("Please provide both appointment ID and customer email.");
       return;
     }
 
     setIsLoading(true);
-    setResponseMessage("");
 
     try {
-      // DELETE request to remove the appointment
       const deleteResponse = await fetch(
         `/api/appointments?id=${appointmentId}&customer_email=${customerEmail}`,
         {
@@ -30,84 +35,147 @@ const DeleteAppointment = () => {
       const deleteResult = await deleteResponse.json();
 
       if (!deleteResponse.ok) {
-        setResponseMessage(`❌ Error deleting appointment: ${deleteResult.message}`);
-        setIsLoading(false);
+        toast.error(`Error canceling appointment: ${deleteResult.message}`);
         return;
       }
 
-      setResponseMessage("✅ Appointment deleted successfully!");
-
-      // ✅ Immediately reset input fields
+      toast.success("Appointment canceled successfully!");
       setAppointmentId("");
       setCustomerEmail("");
-
-      // ⏳ Delay clearing the message for user feedback
-      setTimeout(() => {
-        setResponseMessage("");
-      }, 4000);
+      setShowConfirm(false);
       
     } catch (error) {
       const errorMessage =
         error instanceof Error
           ? error.message
-          : "An unknown error occurred while deleting the appointment.";
-      setResponseMessage(`❌ Error: ${errorMessage}`);
+          : "An unexpected error occurred while canceling the appointment.";
+      toast.error(`Error: ${errorMessage}`);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="flex flex-col items-center bg-white">
-      <div className="bg-red-600 p-6 rounded-lg shadow-xl w-full max-w-lg mt-4">
-        <h2 className="text-2xl font-bold text-center text-black mb-4">
-          Delete Appointment
-        </h2>
-  
-        <div className="space-y-3">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className="w-full"
+    >
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+        >
+          <label htmlFor="appointmentId" className="block text-sm font-body text-text-primary mb-2">
+            Appointment ID
+          </label>
           <input
             type="text"
-            placeholder="Appointment ID"
+            id="appointmentId"
             value={appointmentId}
             onChange={(e) => setAppointmentId(e.target.value)}
-            className="w-full p-2 border-2 border-white rounded-md bg-white text-black placeholder-gray-500 focus:ring-2 focus:ring-white focus:outline-none"
-            disabled={isLoading}
+            className="w-full p-4 border border-gray-200 rounded-default focus:ring-2 focus:ring-accent focus:border-accent-light transition-all font-body"
+            placeholder="Enter appointment ID"
+            required
+            disabled={showConfirm || isLoading}
           />
-  
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3, delay: 0.2 }}
+        >
+          <label htmlFor="customerEmail" className="block text-sm font-body text-text-primary mb-2">
+            Customer Email
+          </label>
           <input
             type="email"
-            placeholder="Customer Email"
+            id="customerEmail"
             value={customerEmail}
             onChange={(e) => setCustomerEmail(e.target.value)}
-            className="w-full p-2 border-2 border-white rounded-md bg-white text-black placeholder-gray-500 focus:ring-2 focus:ring-white focus:outline-none"
-            disabled={isLoading}
+            className="w-full p-4 border border-gray-200 rounded-default focus:ring-2 focus:ring-accent focus:border-accent-light transition-all font-body"
+            placeholder="Enter customer email"
+            required
+            disabled={showConfirm || isLoading}
           />
-  
-          <button
-            onClick={handleDelete}
-            className={`w-full py-2 text-black font-semibold rounded-md transition duration-200 ${
-              isLoading
-                ? "bg-gray-300 cursor-not-allowed"
-                : "bg-white hover:bg-gray-200 active:bg-gray-300"
-            }`}
-            disabled={isLoading}
-          >
-            {isLoading ? "Deleting..." : "Delete Appointment"}
-          </button>
-  
-          {responseMessage && (
-            <p
-              className={`text-center mt-2 p-2 rounded-md ${
-                responseMessage.includes("❌") ? "bg-white text-red-600" : "bg-white text-green-600"
-              }`}
-            >
-              {responseMessage}
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
+        </motion.div>
 
-export default DeleteAppointment;
+        {showConfirm ? (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="space-y-4"
+          >
+            <div className="text-center p-6 bg-background rounded-default border border-error/20">
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                className="w-16 h-16 mx-auto mb-4 text-error"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </motion.div>
+              <h4 className="text-xl font-sans text-error mb-2">Are you sure?</h4>
+              <p className="text-text-secondary mb-2">
+                You are about to cancel your reservation.
+              </p>
+              <p className="text-sm text-text-secondary/70">
+                This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-4">
+              <motion.button
+                type="button"
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 p-4 rounded-default font-sans border border-gray-200 text-text-primary hover:bg-background transition-all"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                disabled={isLoading}
+              >
+                Go Back
+              </motion.button>
+              <motion.button
+                type="submit"
+                disabled={isLoading}
+                className="flex-1 p-4 rounded-default font-sans bg-error text-white hover:bg-error-dark transition-all shadow-soft hover:shadow-medium"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                {isLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Canceling...
+                  </span>
+                ) : (
+                  'Confirm Cancellation'
+                )}
+              </motion.button>
+            </div>
+          </motion.div>
+        ) : (
+          <motion.button
+            type="submit"
+            disabled={!appointmentId || !customerEmail || isLoading}
+            className={`w-full p-4 rounded-default font-sans transition-all ${
+              !appointmentId || !customerEmail || isLoading
+                ? 'bg-gray-100 text-text-secondary cursor-not-allowed'
+                : 'bg-error text-white hover:bg-error-dark shadow-soft hover:shadow-medium'
+            }`}
+            whileHover={{ scale: !appointmentId || !customerEmail || isLoading ? 1 : 1.02 }}
+            whileTap={{ scale: !appointmentId || !customerEmail || isLoading ? 1 : 0.98 }}
+          >
+            Cancel Appointment
+          </motion.button>
+        )}
+      </form>
+    </motion.div>
+  );
+}
