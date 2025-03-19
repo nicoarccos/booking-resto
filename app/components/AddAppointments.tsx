@@ -79,22 +79,32 @@ const AddAppointment: React.FC<AddAppointmentProps> = ({
 
     setIsLoading(true);
     try {
+      // Crear un objeto con los datos a enviar
+      const appointmentData = {
+        customer_email,
+        customer_name,
+        guests,
+        notes,
+        service,
+        date: selectedDate,
+        time: selectedSlot?.time_slot,
+      };
+
       const response = await fetch("/api/appointments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customer_email,
-          customer_name,
-          guests,
-          notes,
-          service,
-          schedule_id: selectedSlot?.id,
-        }),
+        body: JSON.stringify(appointmentData),
       });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Response error:", errorText);
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
 
       const result = await response.json();
 
-      if (response.ok) {
+      if (result.success) {
         setResponseMessage({ type: 'success', text: 'Reservation confirmed! Check your email for confirmation details.' });
         setSelectedSlot(null);
         setCustomerEmail("");
@@ -107,6 +117,7 @@ const AddAppointment: React.FC<AddAppointmentProps> = ({
         setResponseMessage({ type: 'error', text: result.message || 'Error making reservation' });
       }
     } catch (err) {
+      console.error("Error submitting form:", err);
       setResponseMessage({ type: 'error', text: 'An unexpected error occurred. Please try again.' });
     } finally {
       setIsLoading(false);

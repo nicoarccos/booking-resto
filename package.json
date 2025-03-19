@@ -21,7 +21,8 @@
     "nodemailer": "^6.9.16",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-hot-toast": "^2.5.2"
+    "react-hot-toast": "^2.5.2",
+    "react-router-dom": "^7.3.0"
   },
   "devDependencies": {
     "@types/node": "^20",

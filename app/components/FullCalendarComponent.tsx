@@ -16,11 +16,19 @@ export default function FullCalendarComponent() {
   useEffect(() => {
     if (selectedDate) {
       // Fetch available slots for the selected date
-      fetch(`/api/appointments?date=${selectedDate}`)
-        .then(response => response.json())
+      fetch(`/api/schedules?date=${selectedDate}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+          }
+          return response.json();
+        })
         .then(data => {
           if (data.success) {
             setAvailableSlots(data.schedules || []);
+          } else {
+            console.error('Error in response:', data.message);
+            setAvailableSlots([]);
           }
         })
         .catch(error => {

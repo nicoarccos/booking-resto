@@ -46,8 +46,8 @@ export default function Navbar() {
             <div className="hidden md:flex items-center space-x-8">
               <NavLink href="/">Home</NavLink>
               <NavLink href="/menu">Menu</NavLink>
-              <NavLink href="/about">About</NavLink>
-              <NavLink href="/contact">Contact</NavLink>
+              <NavLink href="/about-us">About Us</NavLink>
+              <NavLink href="/contacto">Contacto</NavLink>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -106,11 +106,11 @@ export default function Navbar() {
                 <MobileNavLink href="/menu" onClick={() => setIsMobileMenuOpen(false)}>
                   Menu
                 </MobileNavLink>
-                <MobileNavLink href="/about" onClick={() => setIsMobileMenuOpen(false)}>
-                  About
+                <MobileNavLink href="/about-us" onClick={() => setIsMobileMenuOpen(false)}>
+                  About Us
                 </MobileNavLink>
-                <MobileNavLink href="/contact" onClick={() => setIsMobileMenuOpen(false)}>
-                  Contact
+                <MobileNavLink href="/contacto" onClick={() => setIsMobileMenuOpen(false)}>
+                  Contacto
                 </MobileNavLink>
                 <motion.button
                   whileTap={{ scale: 0.95 }}
