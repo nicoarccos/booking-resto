@@ -90,22 +90,35 @@ const AddAppointment: React.FC<AddAppointmentProps> = ({
         time: selectedSlot?.time_slot,
       };
 
+      console.log('Sending reservation data:', appointmentData);
+
       const response = await fetch("/api/appointments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(appointmentData),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Response error:", errorText);
-        throw new Error(`HTTP error! Status: ${response.status}`);
+      // Capturar el texto de la respuesta primero
+      const responseText = await response.text();
+      console.log(`API Response (${response.status}):`, responseText);
+      
+      let result;
+      try {
+        // Intentar parsear como JSON
+        result = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("Error parsing response as JSON:", parseError);
+        throw new Error(`Respuesta no válida del servidor: ${responseText}`);
       }
 
-      const result = await response.json();
-
-      if (result.success) {
-        setResponseMessage({ type: 'success', text: 'Reservation confirmed! Check your email for confirmation details.' });
+      if (response.ok) {
+        // Éxito - mostrar mensaje y limpiar el formulario
+        setResponseMessage({ 
+          type: 'success', 
+          text: result.warning 
+            ? `${result.warning}`
+            : 'Reserva confirmada! Revisa tu correo para los detalles de confirmación.' 
+        });
         setSelectedSlot(null);
         setCustomerEmail("");
         setCustomerName("");
@@ -114,11 +127,25 @@ const AddAppointment: React.FC<AddAppointmentProps> = ({
         setService("");
         setStep(1);
       } else {
-        setResponseMessage({ type: 'error', text: result.message || 'Error making reservation' });
+        // Error - mostrar mensaje de error del servidor
+        if (result.debug?.includes('connection')) {
+          setResponseMessage({ 
+            type: 'error', 
+            text: 'Error de conexión con el servidor. Por favor, intente nuevamente más tarde o contáctenos directamente por teléfono.' 
+          });
+        } else {
+          setResponseMessage({ 
+            type: 'error', 
+            text: result.message || 'Error al hacer la reserva. Intente nuevamente.' 
+          });
+        }
       }
     } catch (err) {
       console.error("Error submitting form:", err);
-      setResponseMessage({ type: 'error', text: 'An unexpected error occurred. Please try again.' });
+      setResponseMessage({ 
+        type: 'error', 
+        text: err instanceof Error ? err.message : 'Un error inesperado ocurrió. Intente nuevamente.' 
+      });
     } finally {
       setIsLoading(false);
     }
