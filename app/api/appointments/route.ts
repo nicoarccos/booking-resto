@@ -1,35 +1,37 @@
 import { NextResponse } from 'next/server';
-import { supabase, checkSupabaseConnection } from '@/app/utils/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '@/app/utils/sendEmail';
+import { checkSupabaseConnection } from '@/app/utils/supabaseClient';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 // Verificar variables de entorno críticas
 console.log('🔐 JWT_SECRET configurado:', !!process.env.JWT_SECRET);
 
 // GET - Obtener citas
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
-    const date = searchParams.get('date');
-
-    const { data, error } = await supabase
-      .from('appointments')
-      .select('*');
+    const { data: bookings, error } = await supabase
+      .from('bookingsrestorant')
+      .select('*')
+      .order('date', { ascending: true });
 
     if (error) {
+      console.error('Error al obtener reservas:', error);
       return NextResponse.json(
-        { success: false, message: error.message },
+        { success: false, message: 'Error al obtener las reservas' },
         { status: 500 }
       );
     }
 
-    const filteredData = date
-      ? data.filter(appointment => appointment.date === date)
-      : data;
-
-    return NextResponse.json({ success: true, appointments: filteredData });
+    return NextResponse.json({ success: true, bookings });
   } catch (error) {
+    console.error('Error en el endpoint GET de reservas:', error);
     return NextResponse.json(
-      { success: false, message: 'Internal server error' },
+      { success: false, message: 'Error al obtener las reservas' },
       { status: 500 }
     );
   }
@@ -38,142 +40,40 @@ export async function GET(request: Request) {
 // POST - Crear una nueva cita
 export async function POST(request: Request) {
   try {
-    // Verificar connection string de Supabase 
-    console.log('🔑 SUPABASE URL configurada:', !!process.env.NEXT_PUBLIC_SUPABASE_URL);
-    console.log('🔑 SUPABASE ANON KEY configurada:', !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
-    
-    // Verificar conexión a Supabase pero no bloquear si falla
-    let connectionOk = true;
-    let connectionError = null;
-    try {
-      console.log('🔍 Verificando conexión a Supabase...');
-      const connectionStatus = await checkSupabaseConnection();
-      if (!connectionStatus.connected) {
-        console.error('⚠️ Warning: Supabase connection check failed:', connectionStatus.error, connectionStatus);
-        connectionOk = false;
-        connectionError = connectionStatus.error;
-      } else {
-        console.log('✅ Supabase connection verified successfully');
-      }
-    } catch (connErr) {
-      console.error('❌ Connection check error:', connErr);
-      connectionOk = false;
-      connectionError = connErr instanceof Error ? connErr.message : 'Unknown connection error';
-    }
-
     const body = await request.json();
     const { customer_email, customer_name, guests, notes, service, date, time } = body;
 
-    // Validar los datos requeridos
-    if (!customer_email || !customer_name || !service || !date || !time) {
+    // Verificar conexión con Supabase
+    const connectionStatus = await checkSupabaseConnection();
+    if (!connectionStatus.success) {
+      console.warn('Advertencia: Problemas de conexión con Supabase:', connectionStatus.message);
+      // Continuamos con la reserva en modo emergencia
+    }
+
+    // Verificar si el horario ya está reservado
+    const { data: existingBooking, error: checkError } = await supabase
+      .from('bookingsrestorant')
+      .select('*')
+      .eq('date', date)
+      .eq('time', time)
+      .eq('booked', true)
+      .single();
+
+    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 es "no se encontraron registros"
+      console.error('Error al verificar disponibilidad:', checkError);
+      // Continuamos con la reserva en modo emergencia
+    } else if (existingBooking) {
       return NextResponse.json(
-        { success: false, message: 'Missing required fields' },
-        { status: 400 }
+        { success: false, message: 'Este horario ya está reservado. Por favor, seleccione otro horario.' },
+        { status: 409 }
       );
     }
 
-    // Si hay problemas de conexión, permitimos crear la reserva sin verificación
-    if (!connectionOk) {
-      console.warn('Creating appointment without database verification due to connection issues');
-      
-      // Intentar enviar el correo de confirmación
-      const emailSubject = 'Reserva Pre-Confirmada - Your Table Awaits!';
-      const emailBody = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px;">
-          <h1 style="color: #4a5568; text-align: center; padding-bottom: 10px; border-bottom: 1px solid #eee;">¡Su Reserva está Pre-Confirmada!</h1>
-          
-          <div style="padding: 20px 0;">
-            <p style="font-size: 16px;">Estimado/a <strong>${customer_name}</strong>,</p>
-            <p style="font-size: 16px;">Hemos recibido su solicitud de reserva para el <strong>${date}</strong> a las <strong>${time}</strong>.</p>
-            
-            <div style="background-color: #f7fafc; border-left: 4px solid #4299e1; padding: 15px; margin: 20px 0;">
-              <h3 style="margin-top: 0; color: #2c5282;">Detalles de la Reserva</h3>
-              <p><strong>Servicio:</strong> ${service}</p>
-              <p><strong>Cantidad de Personas:</strong> ${guests}</p>
-              ${notes ? `<p><strong>Notas:</strong> ${notes}</p>` : ''}
-            </div>
-            
-            <p><strong>Nota</strong>: Debido a problemas técnicos, su reserva se procesará manualmente. Nos comunicaremos con usted si hay algún inconveniente con su solicitud.</p>
-          </div>
-          
-          <div style="background-color: #2c5282; color: white; padding: 15px; text-align: center; border-radius: 0 0 4px 4px;">
-            <p style="margin: 0;">¡Gracias por elegirnos! Esperamos darle la bienvenida pronto.</p>
-          </div>
-        </div>
-      `;
-      
-      let emailSent = false;
-      try {
-        const emailResult = await sendEmail({
-          to: customer_email,
-          subject: emailSubject,
-          text: emailBody.replace(/<[^>]*>/g, ''),
-          html: emailBody
-        });
-        
-        emailSent = emailResult.success;
-      } catch (e) {
-        console.error('Failed to send email:', e);
-      }
-      
-      // Devolver una respuesta parcialmente exitosa
-      return NextResponse.json({ 
-        success: true, 
-        appointment: {
-          id: Date.now(),
-          customer_email,
-          customer_name,
-          guests,
-          notes,
-          service,
-          date,
-          time,
-          booked: true,
-          provisional: true
-        },
-        email_sent: emailSent,
-        warning: 'La reserva se procesó en modo de emergencia debido a problemas de conexión con la base de datos. Por favor, contacte con el restaurante para confirmar.'
-      });
-    }
-
-    let appointmentData = null;
-    
-    // Verificar disponibilidad en Supabase - PASO CRÍTICO
-    try {
-      // Hacemos una consulta estricta para verificar si el slot ya está reservado
-      const { data: existingBooking, error: checkError } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('date', date)
-        .eq('time', time);
-
-      if (checkError) {
-        // Log detallado del error para depuración
-        console.error('Error checking availability details:', {
-          error: checkError,
-          message: checkError.message,
-          details: checkError.details,
-          hint: checkError.hint,
-          code: checkError.code
-        });
-        
-        // En lugar de devolver un error 500, procedemos con la reserva
-        console.warn('Continuing with reservation despite availability check error');
-      } else {
-        // Verificación estricta: Si hay CUALQUIER reserva existente para esta fecha y hora, rechazar
-        if (existingBooking && existingBooking.length > 0) {
-          console.log(`Slot already booked for ${date} at ${time}. Existing bookings:`, existingBooking);
-          return NextResponse.json(
-            { success: false, message: 'El horario seleccionado ya está reservado. Por favor, seleccione otro horario.' },
-            { status: 409 }
-          );
-        }
-      }
-
-      // Intentamos insertar la nueva reserva (incluso si hubo error en la verificación)
-      const { data, error } = await supabase
-        .from('appointments')
-        .insert([{
+    // Crear la reserva
+    const { data: booking, error: insertError } = await supabase
+      .from('bookingsrestorant')
+      .insert([
+        {
           customer_email,
           customer_name,
           guests,
@@ -182,92 +82,85 @@ export async function POST(request: Request) {
           date,
           time,
           booked: true
-        }])
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error inserting appointment to Supabase:', error);
-        return NextResponse.json(
-          { success: false, message: 'Error al guardar la reserva. Intente nuevamente.' },
-          { status: 500 }
-        );
-      }
-      
-      appointmentData = data;
-    } catch (dbError) {
-      console.error('Database error:', dbError);
-      return NextResponse.json(
-        { success: false, message: 'Error de base de datos. Intente nuevamente más tarde.' },
-        { status: 500 }
-      );
-    }
-
-    // Solo enviamos email si la reserva se guardó correctamente
-    if (appointmentData) {
-      // Enviar email de confirmación
-      const emailSubject = 'Reserva Confirmada - Your Table Awaits!';
-      const emailBody = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px;">
-          <h1 style="color: #4a5568; text-align: center; padding-bottom: 10px; border-bottom: 1px solid #eee;">¡Su Reserva está Confirmada!</h1>
-          
-          <div style="padding: 20px 0;">
-            <p style="font-size: 16px;">Estimado/a <strong>${customer_name}</strong>,</p>
-            <p style="font-size: 16px;">Nos complace confirmar su reserva para el <strong>${date}</strong> a las <strong>${time}</strong>.</p>
-            
-            <div style="background-color: #f7fafc; border-left: 4px solid #4299e1; padding: 15px; margin: 20px 0;">
-              <h3 style="margin-top: 0; color: #2c5282;">Detalles de la Reserva</h3>
-              <p><strong>Servicio:</strong> ${service}</p>
-              <p><strong>Cantidad de Personas:</strong> ${guests}</p>
-              ${notes ? `<p><strong>Notas:</strong> ${notes}</p>` : ''}
-            </div>
-            
-            <p>Si necesita modificar o cancelar su reserva, por favor contáctenos con al menos 24 horas de anticipación.</p>
-          </div>
-          
-          <div style="background-color: #2c5282; color: white; padding: 15px; text-align: center; border-radius: 0 0 4px 4px;">
-            <p style="margin: 0;">¡Gracias por elegirnos! Esperamos darle la bienvenida pronto.</p>
-          </div>
-        </div>
-      `;
-      
-      let emailSuccess = false;
-      try {
-        console.log(`Sending confirmation email to ${customer_email}`);
-        const emailResult = await sendEmail({
-          to: customer_email,
-          subject: emailSubject,
-          text: emailBody.replace(/<[^>]*>/g, ''), // Versión sin HTML
-          html: emailBody
-        });
-        
-        emailSuccess = emailResult.success;
-        if (emailResult.success) {
-          console.log(`Email sent successfully to ${customer_email}`);
-        } else {
-          console.warn('Warning: Email confirmation not sent:', emailResult.error);
         }
-      } catch (emailError) {
-        console.error('Failed to send confirmation email:', emailError);
-      }
+      ])
+      .select()
+      .single();
 
-      // Devolver respuesta exitosa
-      return NextResponse.json({ 
-        success: true, 
-        appointment: appointmentData,
-        email_sent: emailSuccess
-      });
-    } else {
-      // No deberíamos llegar aquí, pero por si acaso
+    if (insertError) {
+      console.error('Error al crear la reserva:', insertError);
+      // Intentamos enviar el email de confirmación incluso si falla la base de datos
+      try {
+        await sendEmail({
+          to: customer_email,
+          subject: 'Reserva en Modo Emergencia - Restaurante',
+          html: `
+            <h2>Reserva en Modo Emergencia</h2>
+            <p>Estimado/a ${customer_name},</p>
+            <p>Su reserva ha sido procesada en modo emergencia debido a problemas técnicos con nuestra base de datos.</p>
+            <p><strong>Detalles de su reserva:</strong></p>
+            <ul>
+              <li>Fecha: ${date}</li>
+              <li>Hora: ${time}</li>
+              <li>Número de invitados: ${guests}</li>
+              <li>Servicio: ${service}</li>
+              ${notes ? `<li>Notas: ${notes}</li>` : ''}
+            </ul>
+            <p>Por favor, contacte al restaurante para confirmar su reserva.</p>
+            <p>Disculpe las molestias.</p>
+          `
+        });
+      } catch (emailError) {
+        console.error('Error al enviar email de emergencia:', emailError);
+      }
       return NextResponse.json(
-        { success: false, message: 'Error al procesar la reserva.' },
+        { 
+          success: false, 
+          message: 'No se puede procesar la reserva en este momento. Por favor, intente más tarde.',
+          details: insertError.message
+        },
         { status: 500 }
       );
     }
+
+    // Enviar email de confirmación
+    try {
+      await sendEmail({
+        to: customer_email,
+        subject: 'Confirmación de Reserva - Restaurante',
+        html: `
+          <h2>¡Reserva Confirmada!</h2>
+          <p>Estimado/a ${customer_name},</p>
+          <p>Su reserva ha sido confirmada exitosamente.</p>
+          <p><strong>Detalles de su reserva:</strong></p>
+          <ul>
+            <li>Fecha: ${date}</li>
+            <li>Hora: ${time}</li>
+            <li>Número de invitados: ${guests}</li>
+            <li>Servicio: ${service}</li>
+            ${notes ? `<li>Notas: ${notes}</li>` : ''}
+          </ul>
+          <p>¡Esperamos su visita!</p>
+        `
+      });
+    } catch (emailError) {
+      console.error('Error al enviar email de confirmación:', emailError);
+      // No retornamos error al cliente si falla el email
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Reserva creada exitosamente',
+      booking 
+    });
   } catch (error) {
-    console.error('Error in POST appointment:', error);
+    console.error('Error en el endpoint de reservas:', error);
     return NextResponse.json(
-      { success: false, message: 'Error interno del servidor. Intente nuevamente más tarde.' },
+      { 
+        success: false, 
+        message: 'Error al procesar la reserva. Por favor, intente nuevamente.',
+        details: error instanceof Error ? error.message : 'Error desconocido'
+      },
       { status: 500 }
     );
   }
@@ -289,7 +182,7 @@ export async function PATCH(request: Request) {
     }
 
     const { data: existing } = await supabase
-      .from('appointments')
+      .from('bookingsrestorant')
       .select()
       .eq('id', id)
       .eq('customer_email', customerEmail)
@@ -303,7 +196,7 @@ export async function PATCH(request: Request) {
     }
 
     const { data, error } = await supabase
-      .from('appointments')
+      .from('bookingsrestorant')
       .update(body)
       .eq('id', id)
       .eq('customer_email', customerEmail)
@@ -341,7 +234,7 @@ export async function DELETE(request: Request) {
     }
 
     const { data: existing } = await supabase
-      .from('appointments')
+      .from('bookingsrestorant')
       .select()
       .eq('id', id)
       .eq('customer_email', customerEmail)
@@ -355,7 +248,7 @@ export async function DELETE(request: Request) {
     }
 
     const { error } = await supabase
-      .from('appointments')
+      .from('bookingsrestorant')
       .delete()
       .eq('id', id)
       .eq('customer_email', customerEmail);

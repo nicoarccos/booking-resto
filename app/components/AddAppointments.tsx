@@ -252,44 +252,62 @@ const AddAppointment: React.FC<AddAppointmentProps> = ({
           ) : (
             <div className="space-y-6">
               <div>
-                <h3 className="text-lg font-sans text-text-primary text-center mb-4">
-                  Select Your Preferred Time
-                </h3>
-                <MonthSection
-                  month={new Date(selectedDate).toLocaleString('default', { month: 'long' })}
-                  slots={availableSlots}
-                  selectedSlot={selectedSlot}
-                  onSelectSlot={(slot) => setSelectedSlot(slot)}
-                />
+                <label className="block text-sm font-body text-text-primary mb-2">Horarios Disponibles</label>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {[
+                    '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30',
+                    '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30',
+                    '20:00', '20:30', '21:00', '21:30', '22:00', '22:30'
+                  ].map((time) => {
+                    const isAvailable = availableSlots.some(slot => slot.time_slot === time);
+                    const isSelected = selectedSlot?.time_slot === time;
+
+                    return (
+                      <button
+                        key={time}
+                        onClick={() => isAvailable && setSelectedSlot({
+                          id: time,
+                          date: selectedDate,
+                          day: new Date(selectedDate).toLocaleDateString('es-ES', { weekday: 'long' }),
+                          time_slot: time,
+                          booked: false
+                        })}
+                        disabled={!isAvailable}
+                        className={`p-4 rounded-default border transition-all text-center ${
+                          !isAvailable
+                            ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                            : isSelected
+                              ? 'border-primary bg-background text-primary shadow-highlight'
+                              : 'border-gray-200 hover:border-accent hover:bg-background/50'
+                        }`}
+                      >
+                        {time}
+                        {!isAvailable && (
+                          <span className="block text-xs text-gray-500 mt-1">Reservado</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="flex gap-4">
                 <button
                   onClick={() => setStep(1)}
-                  className="flex-1 p-4 rounded-default font-sans border border-primary text-primary hover:bg-background transition-all"
+                  className="flex-1 p-4 rounded-default border border-gray-200 hover:border-accent hover:bg-background/50 transition-all"
                 >
-                  Back
+                  Volver
                 </button>
                 <button
                   onClick={handleSubmit}
-                  disabled={isLoading || !selectedSlot}
+                  disabled={!selectedSlot || isLoading}
                   className={`flex-1 p-4 rounded-default font-sans transition-all ${
-                    isLoading || !selectedSlot
+                    !selectedSlot || isLoading
                       ? 'bg-gray-100 text-text-secondary cursor-not-allowed'
                       : 'bg-primary text-white hover:bg-primary-dark active:bg-primary-dark'
                   }`}
                 >
-                  {isLoading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Confirming...
-                    </span>
-                  ) : (
-                    'Confirm Reservation'
-                  )}
+                  {isLoading ? 'Procesando...' : 'Confirmar Reserva'}
                 </button>
               </div>
             </div>

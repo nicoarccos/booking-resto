@@ -1,5 +1,5 @@
 export interface AvailableSlot {
-  id: number;
+  id: string;
   date: string;
   day: string;
   time_slot: string;

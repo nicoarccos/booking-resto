@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/app/utils/supabaseClient';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function GET(request: Request) {
   try {
@@ -8,56 +13,54 @@ export async function GET(request: Request) {
 
     if (!date) {
       return NextResponse.json(
-        { success: false, message: 'Date parameter is required' },
+        { success: false, message: 'La fecha es requerida' },
         { status: 400 }
       );
     }
 
-    // Intentar obtener citas reservadas de Supabase, pero si falla, continuar con una lista vacía
-    let bookedTimes: string[] = [];
-    try {
-      const { data: bookedAppointments, error: appointmentsError } = await supabase
-        .from('appointments')
-        .select('time')
-        .eq('date', date);
+    // Obtener las reservas existentes para la fecha seleccionada
+    const { data: existingBookings, error: bookingsError } = await supabase
+      .from('bookingsrestorant')
+      .select('time')
+      .eq('date', date)
+      .eq('booked', true);
 
-      if (!appointmentsError && bookedAppointments) {
-        bookedTimes = bookedAppointments.map(app => app.time);
-      } 
-    } catch (e) {
-      console.warn('Error connecting to Supabase, proceeding with empty booked appointments:', e);
-      // Continuar con lista vacía
+    if (bookingsError) {
+      console.error('Error al obtener reservas existentes:', bookingsError);
+      return NextResponse.json(
+        { success: false, message: 'Error al verificar disponibilidad' },
+        { status: 500 }
+      );
     }
 
-    // Generar horarios disponibles (12:00 PM a 9:00 PM con intervalos de 1 hora)
-    const availableSlots = [];
-    const startHour = 12; // 12 PM
-    const endHour = 21;   // 9 PM
+    // Lista de horarios disponibles
+    const availableSlots = [
+      '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30',
+      '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30',
+      '20:00', '20:30', '21:00', '21:30', '22:00', '22:30'
+    ];
 
-    for (let hour = startHour; hour < endHour; hour++) {
-      const formattedHour = hour <= 12 ? hour : hour - 12;
-      const ampm = hour < 12 ? 'AM' : 'PM';
-      const timeSlot = `${formattedHour}:00 ${ampm}`;
-      
-      if (!bookedTimes.includes(timeSlot)) {
-        availableSlots.push({
-          id: hour - startHour + 1, // ID único basado en la hora
-          date: date,
-          day: new Date(date).toLocaleDateString('en-US', { weekday: 'long' }),
-          time_slot: timeSlot,
-          booked: false
-        });
-      }
-    }
+    // Filtrar los horarios que ya están reservados
+    const bookedTimes = existingBookings?.map(booking => booking.time) || [];
+    const availableTimes = availableSlots.filter(time => !bookedTimes.includes(time));
 
-    return NextResponse.json({ 
-      success: true, 
-      schedules: availableSlots 
+    // Formatear los horarios disponibles para el calendario
+    const formattedSlots = availableTimes.map(time => ({
+      id: time,
+      date: date,
+      day: new Date(date).toLocaleDateString('es-ES', { weekday: 'long' }),
+      time_slot: time,
+      booked: false
+    }));
+
+    return NextResponse.json({
+      success: true,
+      schedules: formattedSlots
     });
   } catch (error) {
-    console.error('Error in schedules API:', error);
+    console.error('Error en el endpoint de horarios:', error);
     return NextResponse.json(
-      { success: false, message: 'Internal server error' },
+      { success: false, message: 'Error al obtener los horarios disponibles' },
       { status: 500 }
     );
   }
